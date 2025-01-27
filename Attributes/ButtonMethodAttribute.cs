@@ -16,28 +16,37 @@ namespace MyBox
 	[PublicAPI]
 	public class ButtonMethodAttribute : PropertyAttribute
 	{
+		public readonly ButtonAvailableMode AvailableMode;
 		public readonly ButtonMethodDrawOrder DrawOrder;
 		public readonly ConditionalData Condition;
 		
-		public ButtonMethodAttribute(ButtonMethodDrawOrder drawOrder = ButtonMethodDrawOrder.AfterInspector) => DrawOrder = drawOrder;
+		public ButtonMethodAttribute(ButtonAvailableMode availableMode = ButtonAvailableMode.Always, ButtonMethodDrawOrder drawOrder = ButtonMethodDrawOrder.AfterInspector) {
+			AvailableMode = availableMode;
+			DrawOrder = drawOrder;
+		}
 
-		public ButtonMethodAttribute(ButtonMethodDrawOrder drawOrder, string fieldToCheck, bool inverse = false, params object[] compareValues)
-			=> (DrawOrder, Condition) = (drawOrder, new ConditionalData(fieldToCheck, inverse, compareValues));
+		public ButtonMethodAttribute(ButtonAvailableMode availableMode, ButtonMethodDrawOrder drawOrder, string fieldToCheck, bool inverse = false, params object[] compareValues)
+			=> (AvailableMode, DrawOrder, Condition) = (availableMode, drawOrder, new ConditionalData(fieldToCheck, inverse, compareValues));
 
-		public ButtonMethodAttribute(ButtonMethodDrawOrder drawOrder, string[] fieldToCheck, bool[] inverse = null, params object[] compare)
-			=> (DrawOrder, Condition) = (drawOrder, new ConditionalData(fieldToCheck, inverse, compare));
+		public ButtonMethodAttribute(ButtonAvailableMode availableMode, ButtonMethodDrawOrder drawOrder, string[] fieldToCheck, bool[] inverse = null, params object[] compare)
+			=> (AvailableMode, DrawOrder, Condition) = (availableMode, drawOrder, new ConditionalData(fieldToCheck, inverse, compare));
 
-		public ButtonMethodAttribute(ButtonMethodDrawOrder drawOrder, params string[] fieldToCheck) 
-			=> (DrawOrder, Condition) = (drawOrder, new ConditionalData(fieldToCheck));
+		public ButtonMethodAttribute(ButtonAvailableMode availableMode, ButtonMethodDrawOrder drawOrder, params string[] fieldToCheck) 
+			=> (AvailableMode, DrawOrder, Condition) = (availableMode, drawOrder, new ConditionalData(fieldToCheck));
 		
-		public ButtonMethodAttribute(ButtonMethodDrawOrder drawOrder, bool useMethod, string method, bool inverse = false) 
-			=> (DrawOrder, Condition) = (drawOrder, new ConditionalData(useMethod, method, inverse));
+		public ButtonMethodAttribute(ButtonAvailableMode availableMode, ButtonMethodDrawOrder drawOrder, bool useMethod, string method, bool inverse = false) 
+			=> (AvailableMode, DrawOrder, Condition) = (availableMode, drawOrder, new ConditionalData(useMethod, method, inverse));
 	}
 
 	public enum ButtonMethodDrawOrder
 	{
 		BeforeInspector, 
 		AfterInspector
+	}
+	public enum ButtonAvailableMode {
+		Always,
+		EditOnly,
+		PlayOnly
 	}
 }
 
@@ -51,7 +60,7 @@ namespace MyBox.Internal
 	
 	public class ButtonMethodHandler
 	{
-		public readonly List<(MethodInfo Method, string Name, ButtonMethodDrawOrder Order, ConditionalData Condition)> TargetMethods;
+		public readonly List<(MethodInfo Method, string Name, ButtonAvailableMode Mode, ButtonMethodDrawOrder Order, ConditionalData Condition)> TargetMethods;
 		public int Amount => TargetMethods?.Count ?? 0;
 		
 		private readonly Object _target;
@@ -72,8 +81,8 @@ namespace MyBox.Internal
 				if (IsValidMember(method, member))
 				{
 					var attribute = (ButtonMethodAttribute)Attribute.GetCustomAttribute(method, typeof(ButtonMethodAttribute));
-					if (TargetMethods == null) TargetMethods = new List<(MethodInfo, string, ButtonMethodDrawOrder, ConditionalData)>();
-					TargetMethods.Add((method, method.Name.SplitCamelCase(), attribute.DrawOrder, attribute.Condition));
+					if (TargetMethods == null) TargetMethods = new List<(MethodInfo, string, ButtonAvailableMode, ButtonMethodDrawOrder, ConditionalData)>();
+					TargetMethods.Add((method, method.Name.SplitCamelCase(), attribute.AvailableMode, attribute.DrawOrder, attribute.Condition));
 				}
 			}
 		}
@@ -86,7 +95,8 @@ namespace MyBox.Internal
 			foreach (var method in TargetMethods)
 			{
 				if (method.Order != ButtonMethodDrawOrder.BeforeInspector) continue;
-				if (method.Condition != null && !ConditionalUtility.IsConditionMatch(_target, method.Condition)) return;
+                if (method.Mode != ButtonAvailableMode.Always && !IsModeMatch(method.Mode, EditorApplication.isPlaying)) return;
+                if (method.Condition != null && !ConditionalUtility.IsConditionMatch(_target, method.Condition)) return;
 				
 				anyDrawn = true;
 				if (GUILayout.Button(method.Name)) InvokeMethod(_target, method.Method);
@@ -95,7 +105,7 @@ namespace MyBox.Internal
 			if (anyDrawn) EditorGUILayout.Space();
 		}
 
-		public void OnAfterInspectorGUI()
+        public void OnAfterInspectorGUI()
 		{
 			if (TargetMethods == null) return;
 			bool anyDrawn = false;
@@ -103,9 +113,10 @@ namespace MyBox.Internal
 			foreach (var method in TargetMethods)
 			{
 				if (method.Order != ButtonMethodDrawOrder.AfterInspector) continue;
-				if (method.Condition != null && !ConditionalUtility.IsConditionMatch(_target, method.Condition)) return;
-				
-				if (!anyDrawn)
+                if (method.Mode != ButtonAvailableMode.Always && !IsModeMatch(method.Mode, EditorApplication.isPlaying)) return;
+                if (method.Condition != null && !ConditionalUtility.IsConditionMatch(_target, method.Condition)) return;
+
+                if (!anyDrawn)
 				{
 					EditorGUILayout.Space();
 					anyDrawn = true;
@@ -152,6 +163,14 @@ namespace MyBox.Internal
 
 			return true;
 		}
-	}
+
+        private bool IsModeMatch(ButtonAvailableMode mode, bool isPlaying)
+        {
+            if (mode == ButtonAvailableMode.PlayOnly) return isPlaying;
+            if (mode == ButtonAvailableMode.EditOnly) return !isPlaying;
+            return true;
+        }
+
+    }
 }
 #endif
